@@ -390,7 +390,7 @@ func (s *HTTPFrontend) handle(conn net.Conn, isTLS bool) {
 			return
 		}
 		if backend.keypair == nil {
-			log.Println("Canot serve TLS, no certificate defined for this domain")
+			log.Println("Cannot serve TLS, no certificate defined for this domain")
 			return
 		}
 
@@ -418,6 +418,12 @@ func (s *HTTPFrontend) handle(conn net.Conn, isTLS bool) {
 			fail(sc, req, 404, "Not Found")
 			return
 		}
+	}
+
+	if backend.server == nil {
+		log.Println("Matching frontend is not configured yet")
+		fail(sc, req, 404, "Not Found")
+		return
 	}
 
 	backend.server.handle(req, sc, isTLS)
