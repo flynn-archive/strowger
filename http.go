@@ -67,11 +67,15 @@ func (s *HTTPFrontend) AddHTTPDomain(domain string, service string, cert []byte,
 	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/service", service, 0); err != nil {
 		goto error
 	}
-	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/key", string(key), 0); err != nil {
-		goto error
+	if len(key) > 0 {
+		if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/key", string(key), 0); err != nil {
+			goto error
+		}
 	}
-	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/cert", string(cert), 0); err != nil {
-		goto error
+	if len(cert) > 0 {
+		if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/cert", string(cert), 0); err != nil {
+			goto error
+		}
 	}
 	return nil
 error:
