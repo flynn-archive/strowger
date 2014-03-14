@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -40,6 +41,7 @@ type HTTPFrontend struct {
 type EtcdClient interface {
 	Create(key string, value string, ttl uint64) (*etcd.Response, error)
 	Get(key string, sort, recursive bool) (*etcd.Response, error)
+	Delete(key string, recursive bool) (*etcd.Response, error)
 	Watch(prefix string, waitIndex uint64, recursive bool, receiver chan *etcd.Response, stop chan bool) (*etcd.Response, error)
 }
 
@@ -60,20 +62,83 @@ func NewHTTPFrontend(addr, tlsAddr string, etcdc EtcdClient, discoverdc Discover
 }
 
 func (s *HTTPFrontend) AddHTTPDomain(domain string, service string, cert []byte, key []byte) error {
-	return s.addDomain(domain, service, cert, key, true)
+	var err error
+	var _ etcd.Response
+	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/service", service, 0); err != nil {
+		goto error
+	}
+	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/key", string(key), 0); err != nil {
+		goto error
+	}
+	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/cert", string(cert), 0); err != nil {
+		goto error
+	}
+	return nil
+error:
+	if err.(*etcd.EtcdError).ErrorCode == 105 {
+		return ErrDomainExists
+	}
+	return err
 }
 
-var ErrDomainExists = errors.New("strowger: domain exists with different service")
+func (s *HTTPFrontend) RemoveHTTPDomain(domain string) error {
+	if _, err := s.etcd.Delete(s.etcdPrefix+domain, true); err != nil {
+		if err.(*etcd.EtcdError).ErrorCode == 100 {
+			return ErrNoSuchDomain
+		}
+		return err
+	}
+	return nil
+}
 
-func (s *HTTPFrontend) addDomain(name string, service string, cert []byte, key []byte, persist bool) error {
+var ErrDomainExists = errors.New("strowger: domain exists")
+var ErrNoSuchDomain = errors.New("strowger: domain does not exist")
+
+func (s *HTTPFrontend) addDomain(name string) (*domain, error) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	if server, ok := s.domains[name]; ok {
-		if server.name != service {
-			return ErrDomainExists
+	if d, ok := s.domains[name]; ok {
+		return d, ErrDomainExists
+	}
+
+	domainCfg := &domain{name: name}
+	s.domains[name] = domainCfg
+	log.Println("Adding domain", domainCfg.name)
+	return domainCfg, nil
+}
+
+func (s *HTTPFrontend) removeDomain(name string) error {
+	s.mtx.Lock()
+	d, ok := s.domains[name]
+	if !ok {
+		return ErrNoSuchDomain
+	}
+	s.mtx.Unlock()
+
+	err := s.setDomainService(d, "")
+	if err != nil {
+		return err
+	}
+
+	s.mtx.Lock()
+	delete(s.domains, name)
+	s.mtx.Unlock()
+
+	log.Println("Removing domain", name)
+	return nil
+}
+
+func (s *HTTPFrontend) setDomainService(d *domain, service string) error {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	if d.server != nil {
+		d.server.refs--
+		if d.server.refs <= 0 {
+			// TODO: close service set stream
+			delete(s.services, d.server.name)
 		}
-		return nil
 	}
 
 	server := s.services[service]
@@ -85,51 +150,46 @@ func (s *HTTPFrontend) addDomain(name string, service string, cert []byte, key [
 		server = &httpServer{name: service, services: services}
 	}
 
-	var keypair *tls.Certificate
-	if cert != nil && key != nil {
-		created, err := tls.X509KeyPair(cert, key)
-		if err != nil {
-			return err
-		}
-		keypair = &created
-	}
-	domainCfg := &domain{name: name, server: server, keypair: keypair}
-
-	if persist {
-		if _, err := s.etcd.Create(s.etcdPrefix+name+"/service", service, 0); err != nil {
-			return err
-		}
-		if _, err := s.etcd.Create(s.etcdPrefix+name+"/tls/key", string(key), 0); err != nil {
-			return err
-		}
-		if _, err := s.etcd.Create(s.etcdPrefix+name+"/tls/cert", string(cert), 0); err != nil {
-			return err
-		}
-	}
-
 	server.refs++
-	s.domains[name] = domainCfg
 	s.services[service] = server
-
-	log.Println("Add service", service, "to domain", name)
-
+	d.server = server
+	log.Println("Setting service of domain", d.name, "to", service)
 	return nil
 }
 
-func (s *HTTPFrontend) RemoveHTTPDomain(domain string) {
+// Set either of or both cert and key. The TLS config is complete when both have
+// been provided. Pass nil to indicate the value should not change. Pass an empty
+// byte array to clear the value.
+func (s *HTTPFrontend) setDomainTLSConfig(d *domain, cert []byte, key []byte) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	server := s.domains[domain].server
-	if server == nil {
-		return
+
+	if cert != nil {
+		d.cert = cert
 	}
-	delete(s.domains, domain)
-	server.refs++
-	if server.refs <= 0 {
-		// TODO: close service set stream
-		delete(s.services, server.name)
+	if key != nil {
+		d.key = key
 	}
-	// TODO: persist
+
+	// Once both key and cert have been set, parse and validate
+	if len(d.cert) > 0 && len(d.key) > 0 {
+		var keypair *tls.Certificate
+		if cert != nil && key != nil {
+			created, err := tls.X509KeyPair(cert, key)
+			if err != nil {
+				return err
+			}
+			keypair = &created
+		}
+		d.keypair = keypair
+		log.Println("Setting SSL config of domain", d.name)
+	} else {
+		if d.keypair != nil {
+			d.keypair = nil
+			log.Println("Removing SSL config of domain", d.name)
+		}
+	}
+	return nil
 }
 
 // Given a recursive node structure from etcd, find particular
@@ -168,7 +228,13 @@ func (s *HTTPFrontend) syncDatabase() {
 		}
 		domain := path.Base(node.Key)
 
+		d, err := s.addDomain(domain)
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		// Recursively get the whole service structure
+		// XXX Get the whole structure recursively up front, or fix to since index?
 		serviceRes, err := s.etcd.Get(node.Key, false, true)
 		if err != nil {
 			log.Fatal(err)
@@ -176,9 +242,13 @@ func (s *HTTPFrontend) syncDatabase() {
 
 		// Find the individual (service name, ssl info)
 		serviceNode := etcdFindChild(serviceRes.Node, "service")
-		if serviceNode == nil {
-			continue
+		if serviceNode != nil {
+			err = s.setDomainService(d, serviceNode.Value)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
+
 		var cert, key []byte
 		certNode := etcdFindChild(serviceRes.Node, "tls/cert")
 		if certNode != nil && certNode.Value != "" {
@@ -188,8 +258,8 @@ func (s *HTTPFrontend) syncDatabase() {
 		if keyNode != nil && keyNode.Value != "" {
 			key = []byte(keyNode.Value)
 		}
-
-		if err := s.addDomain(domain, serviceNode.Value, cert, key, false); err != nil {
+		err = s.setDomainTLSConfig(d, cert, key)
+		if err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -198,24 +268,44 @@ watch:
 	stream := make(chan *etcd.Response)
 	stop := make(chan bool)
 	// TODO: store stop
-	go s.etcd.Watch(s.etcdPrefix, since, false, stream, stop)
+	go s.etcd.Watch(s.etcdPrefix, since, true, stream, stop)
 	for res := range stream {
-		// XXX support changes to cert/key
-		if res.Node.Dir || path.Base(res.Node.Key) == "service" {
-			continue
+		keyRelToBase := res.Node.Key[len(s.etcdPrefix):]
+		parts := strings.SplitN(keyRelToBase, "/", 2)
+		domain := parts[0]
+		key := ""
+		if len(parts) == 2 {
+			key = parts[1]
 		}
-		domain := path.Base(path.Dir(res.Node.Key))
-		s.mtx.Lock()
-		_, exists := s.domains[domain]
-		s.mtx.Unlock()
-		if !exists {
-			if err := s.addDomain(domain, res.Node.Value, nil, nil, false); err != nil {
-				// TODO: log error
+
+		var err error
+		if res.Action == "delete" && res.Node.Dir && key == "" {
+			// Directory for a domain was removed
+			err = s.removeDomain(domain)
+		} else {
+			var value *string
+			if res.Action == "delete" {
+				value = nil
+			} else {
+				value = &res.Node.Value
+			}
+
+			d, _ := s.addDomain(domain)
+			if key == "service" {
+				err = s.setDomainService(d, *value)
+			} else if key == "tls/key" {
+				err = s.setDomainTLSConfig(d, nil, []byte(*value))
+			} else if key == "tls/cert" {
+				err = s.setDomainTLSConfig(d, []byte(*value), nil)
 			}
 		}
+
+		if err != nil {
+			panic(fmt.Sprintf("Error while processing update from etcd: %s", err))
+		}
+
 	}
 	// TODO: handle delete
-	log.Println("done watching etcd")
 }
 
 func (s *HTTPFrontend) serve() {
@@ -332,9 +422,12 @@ func (s *HTTPFrontend) handle(conn net.Conn, isTLS bool) {
 // A domain served by a frontend, associated TLS certs,
 // and link to backend service set.
 type domain struct {
-	name    string
+	name   string
+	server *httpServer
+	// Keypair created from cert/byte when both are available
+	cert    []byte
+	key     []byte
 	keypair *tls.Certificate
-	server  *httpServer
 }
 
 // A service definition: name, and set of backends.
