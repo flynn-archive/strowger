@@ -142,17 +142,21 @@ func (s *HTTPFrontend) setDomainService(d *domain, service string) error {
 		}
 	}
 
-	server := s.services[service]
-	if server == nil {
-		services, err := s.discoverd.NewServiceSet(service)
-		if err != nil {
-			return err
+	var server *httpServer
+	if service != "" {
+		server := s.services[service]
+		if server == nil {
+			services, err := s.discoverd.NewServiceSet(service)
+			if err != nil {
+				return err
+			}
+			server = &httpServer{name: service, services: services}
 		}
-		server = &httpServer{name: service, services: services}
+
+		server.refs++
+		s.services[service] = server
 	}
 
-	server.refs++
-	s.services[service] = server
 	d.server = server
 	log.Println("Setting service of domain", d.name, "to", service)
 	return nil
