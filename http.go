@@ -241,15 +241,8 @@ func (s *HTTPFrontend) syncDatabase() {
 			log.Fatal(err)
 		}
 
-		// Recursively get the whole service structure
-		// XXX Get the whole structure recursively up front, or fix to since index?
-		serviceRes, err := s.etcd.Get(node.Key, false, true)
-		if err != nil {
-			log.Fatal(err)
-		}
-
 		// Find the individual (service name, ssl info)
-		serviceNode := etcdFindChild(serviceRes.Node, "service")
+		serviceNode := etcdFindChild(&node, "service")
 		if serviceNode != nil {
 			err = s.setDomainService(d, serviceNode.Value)
 			if err != nil {
@@ -258,11 +251,11 @@ func (s *HTTPFrontend) syncDatabase() {
 		}
 
 		var cert, key []byte
-		certNode := etcdFindChild(serviceRes.Node, "tls/cert")
+		certNode := etcdFindChild(&node, "tls/cert")
 		if certNode != nil && certNode.Value != "" {
 			cert = []byte(certNode.Value)
 		}
-		keyNode := etcdFindChild(serviceRes.Node, "tls/key")
+		keyNode := etcdFindChild(&node, "tls/key")
 		if keyNode != nil && keyNode.Value != "" {
 			key = []byte(keyNode.Value)
 		}
