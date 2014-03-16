@@ -63,23 +63,20 @@ func NewHTTPFrontend(addr, tlsAddr string, etcdc EtcdClient, discoverdc Discover
 
 func (s *HTTPFrontend) AddHTTPDomain(domain string, service string, cert []byte, key []byte) error {
 	var err error
-	var _ etcd.Response
 	if _, err = s.etcd.Create(s.etcdPrefix+domain+"/service", service, 0); err != nil {
 		goto error
 	}
-	if len(key) > 0 {
+	if len(key) > 0 && len(cert) > 0 {
 		if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/key", string(key), 0); err != nil {
 			goto error
 		}
-	}
-	if len(cert) > 0 {
 		if _, err = s.etcd.Create(s.etcdPrefix+domain+"/tls/cert", string(cert), 0); err != nil {
 			goto error
 		}
 	}
 	return nil
 error:
-	if err.(*etcd.EtcdError).ErrorCode == 105 {
+	if e, ok := err.(*etcd.EtcdError); ok && e.ErrorCode == 105 {
 		return ErrDomainExists
 	}
 	return err
@@ -87,7 +84,7 @@ error:
 
 func (s *HTTPFrontend) RemoveHTTPDomain(domain string) error {
 	if _, err := s.etcd.Delete(s.etcdPrefix+domain, true); err != nil {
-		if err.(*etcd.EtcdError).ErrorCode == 100 {
+		if e, ok := err.(*etcd.EtcdError); ok && e.ErrorCode == 100 {
 			return ErrNoSuchDomain
 		}
 		return err
