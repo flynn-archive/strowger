@@ -310,7 +310,6 @@ watch:
 		}
 
 	}
-	// TODO: handle delete
 }
 
 func (s *HTTPFrontend) serve() {
