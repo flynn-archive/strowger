@@ -137,7 +137,10 @@ func (s *HTTPFrontend) setDomainService(d *domain, service string) error {
 	if d.server != nil {
 		d.server.refs--
 		if d.server.refs <= 0 {
-			// TODO: close service set stream
+			err := d.server.services.Close()
+			if err != nil {
+				log.Println("Error closing the discoverd connetion for ", d.server.name, err)
+			}
 			delete(s.services, d.server.name)
 		}
 	}
