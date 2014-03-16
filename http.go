@@ -113,6 +113,7 @@ func (s *HTTPFrontend) removeDomain(name string) error {
 	s.mtx.Lock()
 	d, ok := s.domains[name]
 	if !ok {
+		s.mtx.Unlock()
 		return ErrNoSuchDomain
 	}
 	s.mtx.Unlock()
@@ -123,9 +124,8 @@ func (s *HTTPFrontend) removeDomain(name string) error {
 	}
 
 	s.mtx.Lock()
+	defer s.mtx.Unlock()
 	delete(s.domains, name)
-	s.mtx.Unlock()
-
 	log.Println("Removing domain", name)
 	return nil
 }
