@@ -41,7 +41,7 @@ func createRoute(req *http.Request, route strowger.Route, router *Router, r rend
 		return
 	}
 
-	if err := l.AddRoute(&route); err != nil {
+	if err := l.SetRoute(&route); err != nil {
 		log.Println(err)
 		r.JSON(500, struct{}{})
 		return

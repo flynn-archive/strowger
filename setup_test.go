@@ -92,16 +92,13 @@ func (e *fakeEtcd) Watch(prefix string, waitIndex uint64, recursive bool, receiv
 	return &etcd.Response{Action: "watch"}, nil
 }
 
-func (e *fakeEtcd) Create(key string, value string, ttl uint64) (*etcd.Response, error) {
+func (e *fakeEtcd) Set(key string, value string, ttl uint64) (*etcd.Response, error) {
 	if key == "" || key[0] != '/' {
 		return nil, errors.New("etcd: key must start with /")
 	}
 	key = strings.TrimSuffix(key, "/")
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
-	if _, ok := e.index[key]; ok {
-		return nil, &etcd.EtcdError{ErrorCode: 105, Message: "Key already exists"}
-	}
 
 	components := strings.Split(key, "/")[1:]
 	components[0] = "/" + components[0]

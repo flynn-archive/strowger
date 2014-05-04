@@ -138,14 +138,14 @@ func assertGet(c *C, url, host, expected string) {
 }
 
 func addHTTPRoute(c *C, l *HTTPListener) *strowger.Route {
-	wait := waitForEvent(c, l, "add", "")
+	wait := waitForEvent(c, l, "set", "")
 	r := (&strowger.HTTPRoute{
 		Domain:  "example.com",
 		Service: "test",
 		TLSCert: string(localhostCert),
 		TLSKey:  string(localhostKey),
 	}).ToRoute()
-	err := l.AddRoute(r)
+	err := l.SetRoute(r)
 	c.Assert(err, IsNil)
 	wait()
 	return r
