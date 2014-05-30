@@ -11,14 +11,14 @@ import (
 )
 
 type EtcdClient interface {
-	Create(key string, value string, ttl uint64) (*etcd.Response, error)
+	Set(key string, value string, ttl uint64) (*etcd.Response, error)
 	Get(key string, sort, recursive bool) (*etcd.Response, error)
 	Delete(key string, recursive bool) (*etcd.Response, error)
 	Watch(prefix string, waitIndex uint64, recursive bool, receiver chan *etcd.Response, stop chan bool) (*etcd.Response, error)
 }
 
 type DataStore interface {
-	Add(route *strowger.Route) error
+	Set(route *strowger.Route) error
 	Get(id string) (*strowger.Route, error)
 	List() ([]*strowger.Route, error)
 	Remove(id string) error
@@ -32,7 +32,7 @@ type DataStoreReader interface {
 }
 
 type SyncHandler interface {
-	Add(route *strowger.Route) error
+	Set(route *strowger.Route) error
 	Remove(id string) error
 }
 
@@ -53,12 +53,12 @@ type etcdDataStore struct {
 var ErrExists = errors.New("strowger: route already exists")
 var ErrNotFound = errors.New("strowger: route not found")
 
-func (s *etcdDataStore) Add(r *strowger.Route) error {
+func (s *etcdDataStore) Set(r *strowger.Route) error {
 	data, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	_, err = s.etcd.Create(s.path(r.ID), string(data), 0)
+	_, err = s.etcd.Set(s.path(r.ID), string(data), 0)
 	if e, ok := err.(*etcd.EtcdError); ok && e.ErrorCode == 105 {
 		err = ErrExists
 	}
@@ -128,7 +128,7 @@ func (s *etcdDataStore) Sync(h SyncHandler, started chan<- error) {
 			started <- err
 			return
 		}
-		if err := h.Add(route); err != nil {
+		if err := h.Set(route); err != nil {
 			started <- err
 			return
 		}
@@ -148,7 +148,7 @@ watch:
 			if err = json.Unmarshal([]byte(res.Node.Value), route); err != nil {
 				goto fail
 			}
-			err = h.Add(route)
+			err = h.Set(route)
 		}
 	fail:
 		if err != nil {

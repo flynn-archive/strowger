@@ -100,12 +100,12 @@ func (s *S) TestAddTCPRoute(c *C) {
 }
 
 func addTCPRoute(c *C, l *TCPListener, port int) *strowger.TCPRoute {
-	wait := waitForEvent(c, l, "add", "")
+	wait := waitForEvent(c, l, "set", "")
 	r := (&strowger.TCPRoute{
 		Service: "test",
 		Port:    port,
 	}).ToRoute()
-	err := l.AddRoute(r)
+	err := l.SetRoute(r)
 	c.Assert(err, IsNil)
 	wait()
 	return r.TCPRoute()
@@ -152,7 +152,7 @@ func (s *S) TestTCPPortAllocation(c *C) {
 			discoverd.UnregisterAll()
 		}
 		r := (&strowger.TCPRoute{Service: "test"}).ToRoute()
-		err := l.AddRoute(r)
+		err := l.SetRoute(r)
 		c.Assert(err, Equals, ErrNoPorts)
 		for _, port := range ports {
 			wait := waitForEvent(c, l, "remove", port)

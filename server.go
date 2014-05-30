@@ -16,7 +16,7 @@ import (
 type Listener interface {
 	Start() error
 	Close() error
-	AddRoute(*strowger.Route) error
+	SetRoute(*strowger.Route) error
 	RemoveRoute(id string) error
 	Watcher
 	DataStoreReader
