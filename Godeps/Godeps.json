@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/flynn/strowger",
+	"ImportPath": "github.com/flynn-archive/strowger",
 	"GoVersion": "go1.3",
 	"Deps": [
 		{
@@ -46,6 +46,14 @@
 		{
 			"ImportPath": "github.com/flynn/rpcplus",
 			"Rev": "50c419fe0d665ed5088c6aa7692454fa7784490b"
+		},
+		{
+			"ImportPath": "github.com/flynn/strowger/client",
+			"Rev": "8f81ac826c87597fe94cee8edb89fdd0b2570022"
+		},
+		{
+			"ImportPath": "github.com/flynn/strowger/types",
+			"Rev": "8f81ac826c87597fe94cee8edb89fdd0b2570022"
 		},
 		{
 			"ImportPath": "github.com/go-martini/martini",
